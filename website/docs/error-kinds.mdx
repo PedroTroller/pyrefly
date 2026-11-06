@@ -1720,7 +1720,23 @@ configuring or suppressing the parent kind also applies to this diagnostic.
 Default severity: `ignore`
 
 Enable this error kind to have Pyrefly report when the result of a call whose
-return type is declared as `None` is used.
+return type is declared as `None` is used. Such a value is always `None`, so
+using it is usually a mistake, such as expecting a method that modifies its
+object in place to return the result.
+
+```python
+class Service:
+    def run(self) -> None: ...
+
+result = Service().run()  # error: the result is always `None`
+Service().run()  # ok: the result is not used
+```
+
+A result is not considered used in an expression statement, in the body of a
+`lambda`, in a branch of a conditional expression in one of these places, or in
+`return notify()` when the function's return type is `None`, `Any`, or not
+annotated, or for a generator when its return value is `None` or unconstrained,
+as with an `Iterator` return type.
 
 ## not-a-type
 
