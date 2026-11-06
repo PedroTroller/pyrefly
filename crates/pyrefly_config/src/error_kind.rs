@@ -377,6 +377,8 @@ pub enum ErrorKind {
     /// This is a sub-kind of [NonExhaustiveMatch]: suppressing `non-exhaustive-match` also
     /// suppresses this error.
     NonExhaustiveMatchOpenType,
+    /// The result of a call whose return type is declared as `None` is used.
+    NoneCallResult,
     /// Attempting to use something that isn't a type where a type is expected.
     /// This is a very general error and should be used sparingly.
     NotAType,
@@ -677,6 +679,7 @@ impl ErrorKind {
             ErrorKind::NonExhaustiveMatch => Severity::Warn,
             ErrorKind::NonExhaustiveMatchOpenType => Severity::Ignore,
             ErrorKind::NonConvergentRecursion => Severity::Warn,
+            ErrorKind::NoneCallResult => Severity::Ignore,
             ErrorKind::NotRequiredKeyAccess => Severity::Ignore,
             ErrorKind::OpenUnpacking => Severity::Ignore,
             ErrorKind::OrderedDataclassInheritance => Severity::Warn,

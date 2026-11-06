@@ -1715,6 +1715,13 @@ subject type such as `int`, `str`, or `object` is non-exhaustive.
 This is a sub-kind of [non-exhaustive-match](#non-exhaustive-match), so
 configuring or suppressing the parent kind also applies to this diagnostic.
 
+## none-call-result
+
+Default severity: `ignore`
+
+Enable this error kind to have Pyrefly report when the result of a call whose
+return type is declared as `None` is used.
+
 ## not-a-type
 
 This indicates an attempt to use something that isn't a type where a type is expected.

@@ -103,6 +103,7 @@
     "non-convergent-recursion": ["legacy", "default", "strict", "all"],
     "non-exhaustive-match": ["legacy", "default", "strict", "all"],
     "non-exhaustive-match-open-type": ["all"],
+    "none-call-result": ["all"],
     "not-a-type": ["legacy", "default", "strict", "all"],
     "not-async": ["basic", "legacy", "default", "strict", "all"],
     "not-callable": ["legacy", "default", "strict", "all"],
