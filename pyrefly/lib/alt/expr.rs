@@ -819,6 +819,41 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         self.expr_with_options(x, options).into_ty()
     }
 
+    /// Runs `infer` with `errors` for an expression `x` whose value is discarded, dropping the
+    /// `none-call-result` errors of the calls whose value `x` passes through: `x` itself when it
+    /// is a call or an `await`, and recursively the branches of a conditional expression, but not
+    /// its condition. This relies on that error being reported at the call's own range, or at the
+    /// range of the `await` that directly encloses it, never at a wider one: comparing ranges
+    /// therefore never drops the error of a nested call such as `print(notify())`.
+    pub(crate) fn infer_discarding_none_call_result<T>(
+        &self,
+        x: &Expr,
+        errors: &ErrorCollector,
+        infer: impl FnOnce(&ErrorCollector) -> T,
+    ) -> T {
+        /// Whether `is_dropped` holds for a call or an `await` whose value `x` passes through.
+        fn passes_through(x: &Expr, is_dropped: &impl Fn(&Expr) -> bool) -> bool {
+            match x {
+                Expr::Call(_) | Expr::Await(_) => is_dropped(x),
+                Expr::If(x) => {
+                    passes_through(&x.body, is_dropped) || passes_through(&x.orelse, is_dropped)
+                }
+                _ => false,
+            }
+        }
+        // A caller that discards errors gets no reports, so there is nothing to drop.
+        if !errors.is_active() || !passes_through(x, &|_| true) {
+            return infer(errors);
+        }
+        let scratch = self.error_collector();
+        let result = infer(&scratch);
+        errors.extend_filtered(scratch, |error| {
+            error.error_kind() != ErrorKind::NoneCallResult
+                || !passes_through(x, &|call| call.range() == error.range())
+        });
+        result
+    }
+
     /// Infer a type for an expression. Convenience wrapper around `expr_with_options`.
     pub fn expr_infer(&self, x: &Expr, errors: &ErrorCollector) -> Type {
         self.expr_with_options(x, ExprOptions::infer(errors, None))
@@ -1186,11 +1221,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                                 hint.and_then(|hint| hint.errors().map(|_| callable_errors)),
                             )
                         });
-                        let ret = self.expr_infer_impl_helper(
+                        let ret = self.infer_discarding_none_call_result(
                             &lambda.body,
-                            return_hint,
                             callable_errors,
-                            None,
+                            |errors| {
+                                self.expr_infer_impl_helper(&lambda.body, return_hint, errors, None)
+                            },
                         );
                         match ret {
                             Type::Any(AnyStyle::Implicit) => {
@@ -1368,7 +1404,18 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 },
             ),
             Expr::Await(x) => {
-                let awaiting_ty = self.expr_infer(&x.value, errors);
+                let awaiting_ty = if let Expr::Call(call) = &*x.value {
+                    // Inferring the call directly lets it report a used `None` at the `await`.
+                    // This bypasses `expr_infer`, which for a call without a type form context
+                    // only adds the deprecation check and the type trace recorded here.
+                    let prepared = self.prepare_expr_call(call, errors);
+                    let ty = self.finish_prepared_expr_call(prepared, None, Some(x.range), errors);
+                    self.check_for_deprecated_call(&ty, call.range(), errors);
+                    self.record_type_trace(call.range(), &ty);
+                    ty
+                } else {
+                    self.expr_infer(&x.value, errors)
+                };
                 self.distribute_over_union(&awaiting_ty, |ty| match self.unwrap_awaitable(ty) {
                     Some(ty) => ty,
                     None => self.error(
@@ -1400,7 +1447,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     }
                 }
                 let prepared = self.prepare_expr_call(x, errors);
-                self.finish_prepared_expr_call(prepared, hint, errors)
+                self.finish_prepared_expr_call(prepared, hint, None, errors)
             }
             Expr::FString(x) => {
                 let mut all_literal_strings = true;
@@ -1521,10 +1568,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         })
     }
 
+    /// Finishes inferring a call. `awaited` is the range of the `await` that directly encloses the
+    /// call, if any.
     pub(crate) fn finish_prepared_expr_call(
         &self,
         prepared: PreparedExprCall,
         hint: Option<HintRef>,
+        awaited: Option<TextRange>,
         errors: &ErrorCollector,
     ) -> Type {
         let mut callee = match prepared {
@@ -1586,7 +1636,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             } else {
                 obj_ty
                     .at_facet(&facet, || {
-                        self.expr_call_infer(callee.clone(), hint, errors)
+                        self.expr_call_infer(callee.clone(), hint, awaited, errors)
                     })
                     .into_ty()
             }
@@ -1602,7 +1652,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     errors,
                 );
             }
-            self.expr_call_infer(callee, hint, errors)
+            self.expr_call_infer(callee, hint, awaited, errors)
         }
     }
 

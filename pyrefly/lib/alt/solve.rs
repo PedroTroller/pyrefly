@@ -4933,7 +4933,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     .with_annotation(annot_range, "declared return type".to_owned())
             };
             if let Some(expr) = &x.expr {
-                let return_ty = self.expr_check(expr, hint.as_ref().map(|t| (t, tcc)), errors);
+                let return_ty =
+                    self.expr_check_return(expr, hint.as_ref(), x.annot.is_some(), tcc, errors);
                 self.check_any_return(
                     x.annot.is_some(),
                     hint.as_ref(),
@@ -4972,7 +4973,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     .with_annotation(annot_range, "declared return type".to_owned())
             };
             if let Some(expr) = &x.expr {
-                let return_ty = self.expr_check(expr, hint.as_ref().map(|t| (t, tcc)), errors);
+                let return_ty =
+                    self.expr_check_return(expr, hint.as_ref(), x.annot.is_some(), tcc, errors);
                 self.check_any_return(
                     x.annot.is_some(),
                     hint.as_ref(),
@@ -4988,6 +4990,26 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             } else {
                 self.heap.mk_none()
             }
+        }
+    }
+
+    /// Check a returned expression against the return hint, which for a generator is the hint for
+    /// its return value. As in mypy, returning the value of a call declared `-> None` is not a use
+    /// of that value when the function is not annotated, or when the hint is `None` or `Any`. An
+    /// `Iterator` or `Iterable` annotation gives a generator an `Any` return hint.
+    fn expr_check_return(
+        &self,
+        expr: &Expr,
+        hint: Option<&Type>,
+        annotated: bool,
+        tcc: &dyn Fn() -> TypeCheckContext,
+        errors: &ErrorCollector,
+    ) -> Type {
+        let check = |errors: &ErrorCollector| self.expr_check(expr, hint.map(|t| (t, tcc)), errors);
+        if !annotated || hint.is_some_and(|hint| hint.is_none() || hint.is_any()) {
+            self.infer_discarding_none_call_result(expr, errors, check)
+        } else {
+            check(errors)
         }
     }
 
@@ -6102,7 +6124,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         special_export: Option<SpecialExport>,
         errors: &ErrorCollector,
     ) -> Type {
-        let result = self.expr_check(e, None, errors);
+        let result = self.infer_discarding_none_call_result(e, errors, |errors| {
+            self.expr_check(e, None, errors)
+        });
         match special_export {
             Some(special @ (SpecialExport::TypeVar | SpecialExport::IntVar)) => {
                 self.error(

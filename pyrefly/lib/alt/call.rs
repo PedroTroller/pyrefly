@@ -2593,6 +2593,42 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         })
     }
 
+    /// Whether every function that `target` may call declares its return type as `None`, either
+    /// written or obtained by substitution. A `None` inferred from the body of a function without
+    /// a return annotation does not count. For an `async def`, this is the return type of the
+    /// coroutine.
+    fn declares_none_return(&self, target: &CallTarget) -> bool {
+        let function_declares_none = |function: &Function| {
+            let flags = &function.metadata.flags;
+            if flags.is_return_inferred {
+                false
+            } else if flags.is_async {
+                self.unwrap_coroutine(&function.signature.ret)
+                    .is_some_and(|(_, _, ret)| ret.is_none())
+            } else {
+                function.signature.ret.is_none()
+            }
+        };
+        match target {
+            CallTarget::Function(TargetWithTParams(_, function))
+            | CallTarget::BoundMethod(_, TargetWithTParams(_, function)) => {
+                function_declares_none(function)
+            }
+            CallTarget::Callable(TargetWithTParams(_, callable)) => callable.ret.is_none(),
+            CallTarget::FunctionOverload(overloads, _)
+            | CallTarget::BoundMethodOverload(_, overloads, _) => overloads
+                .iter()
+                .all(|TargetWithTParams(_, function)| function_declares_none(function)),
+            CallTarget::Union(targets) => targets
+                .iter()
+                .all(|target| self.declares_none_return(target)),
+            CallTarget::Class(..)
+            | CallTarget::TypedDict(_)
+            | CallTarget::Intersect(_)
+            | CallTarget::Any(_) => false,
+        }
+    }
+
     /// Wrapper for `callable_infer` that handles trying a call with and without a contextual hint.
     fn call_infer_inner(
         &self,
@@ -3047,10 +3083,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         ty
     }
 
+    /// Infers a call expression. `awaited` is the range of the `await` that directly encloses the
+    /// call, if any.
     pub fn expr_call_infer(
         &self,
         mut callee: ExprCallee,
         hint: Option<HintRef>,
+        awaited: Option<TextRange>,
         errors: &ErrorCollector,
     ) -> Type {
         // nn.Sequential chain: thread input through each module's forward method.
@@ -3108,7 +3147,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 )
             };
 
+            // Only the generic call path below resolves a call target, so a special-cased member
+            // never counts as declaring `None`.
+            let mut members = 0;
+            let mut members_declaring_none = 0;
             let result = self.distribute_over_union(&callee.ty, |ty| {
+                members += 1;
                 // NotImplemented is a singleton constant, not a callable class.
                 if matches!(ty, Type::ClassType(cls) if cls.is_builtin("_NotImplementedType") || cls.has_qname("types", "NotImplementedType"))
                 {
@@ -3387,6 +3431,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     if !reference_already_checked {
                         self.report_call_deprecation(&target, callee_func.range(), errors, None);
                     }
+                    if self.declares_none_return(&target) {
+                        members_declaring_none += 1;
+                    }
                     self.call_infer_with_callee_range(
                         target,
                         &args,
@@ -3402,6 +3449,28 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     ).ty
                 }
             }});
+            // An empty union distributes to `Never`, which is not `None`, so it never reports.
+            // This error is reported at the call's own range, or at the directly enclosing
+            // `await`'s range, never at a wider one. The exempt sites rely on that when they drop
+            // it by comparing ranges.
+            if members_declaring_none == members {
+                let report = match awaited {
+                    None => result.is_none().then_some((
+                        callee.expr.range(),
+                        "Result of this call is used, but its return type is declared as `None`",
+                    )),
+                    Some(await_range) => self
+                        .unwrap_awaitable(&result)
+                        .is_some_and(|ty| ty.is_none())
+                        .then_some((
+                            await_range,
+                            "Result of `await` is used, but the awaited call's return type is declared as `None`",
+                        )),
+                };
+                if let Some((range, message)) = report {
+                    self.error(errors, range, ErrorKind::NoneCallResult, message.to_owned());
+                }
+            }
             // TypeIs and TypeGuard functions return bool at runtime
             match result {
                 Type::TypeIs(_) | Type::TypeGuard(_) => {
