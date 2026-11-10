@@ -4905,7 +4905,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             .and_then(|ann| ann.ty(self.heap, self.stdlib));
         if x.is_unreachable {
             if let Some(expr) = &x.expr {
-                self.expr_infer(expr, errors);
+                // An unreachable `return` never produces its value, so it never uses the value of
+                // a call declared `-> None`.
+                self.infer_discarding_none_call_result(expr, errors, |errors| {
+                    self.expr_infer(expr, errors)
+                });
             }
             self.heap.mk_never()
         } else if x.is_async && x.is_generator {

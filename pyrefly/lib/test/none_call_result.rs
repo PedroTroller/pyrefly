@@ -121,6 +121,10 @@ def returns_any() -> Any:
 def unannotated():
     return notify()
 
+def unreachable() -> int:
+    raise ValueError()
+    return notify()  # E: This code is unreachable
+
 class Base:
     def save(self) -> None: ...
 
