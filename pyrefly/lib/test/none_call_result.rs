@@ -131,6 +131,20 @@ class Child(Base):
 );
 
 testcase!(
+    special_calls,
+    env(),
+    r#"
+from typing import assert_type, cast, reveal_type
+
+def notify() -> None: ...
+
+assert_type(notify(), None)
+reveal_type(notify())  # E: revealed type: None
+value = cast(object, notify())
+"#,
+);
+
+testcase!(
     generator_return,
     env(),
     r#"

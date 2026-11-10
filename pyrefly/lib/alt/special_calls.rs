@@ -75,9 +75,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         let ret = if args.len() == 2 {
             let expr_a = &args[0];
             let expr_b = &args[1];
-            let a = self
-                .solver()
-                .force(self.expr_infer_with_hint(expr_a, hint, errors));
+            // As in mypy, asserting the type of a call declared `-> None` is not a use of its
+            // value.
+            let a = self.solver().force(self.infer_discarding_none_call_result(
+                expr_a,
+                errors,
+                |errors| self.expr_infer_with_hint(expr_a, hint, errors),
+            ));
             let b = self.solver().force(self.expr_untype(
                 expr_b,
                 TypeFormContext::FunctionArgument,
@@ -202,7 +206,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         errors: &ErrorCollector,
     ) -> Type {
         let ret = if args.len() == 1 {
-            let mut type_info = self.expr_with_options(&args[0], ExprOptions::infer(errors, hint));
+            // As in mypy, revealing the type of a call declared `-> None` is not a use of its
+            // value.
+            let mut type_info =
+                self.infer_discarding_none_call_result(&args[0], errors, |errors| {
+                    self.expr_with_options(&args[0], ExprOptions::infer(errors, hint))
+                });
             let ret = type_info.ty().clone();
             type_info.visit_mut(&mut |ty| {
                 *ty = self.for_display(ty.clone());
@@ -494,7 +503,10 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             );
         }
         if let Some(val_expr) = val {
-            let val_type = self.expr_infer(val_expr, errors);
+            // As in mypy, casting the value of a call declared `-> None` is not a use of it.
+            let val_type = self.infer_discarding_none_call_result(val_expr, errors, |errors| {
+                self.expr_infer(val_expr, errors)
+            });
             if !val_type.is_any() && val_type == ret {
                 self.error(
                     errors,
