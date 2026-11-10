@@ -23,6 +23,10 @@ def notify() -> None: ...
 
 class Base:
     def run(self) -> None: ...
+    @classmethod
+    def make(cls) -> None: ...
+    @staticmethod
+    def helper() -> None: ...
 
 class Child(Base):
     def run(self) -> None:
@@ -31,19 +35,29 @@ class Child(Base):
 class Hook(Protocol):
     def __call__(self) -> None: ...
 
+class Plain:
+    def __call__(self) -> None: ...
+
 @overload
 def log(value: int) -> None: ...
 @overload
 def log(value: str) -> None: ...
 def log(value: int | str) -> None: ...
 
-def use(base: Base, hook: Hook, callback: Callable[[], None]) -> None:
+def use(base: Base, hook: Hook, plain: Plain, callback: Callable[[], None]) -> None:
     b = notify()  # E: declared as `None`
     c = base.run()  # E: declared as `None`
     e = hook()  # E: declared as `None`
     f = callback()  # E: declared as `None`
     g = functools.partial(notify)()  # E: declared as `None`
     h = log(1)  # E: declared as `None`
+    i = Base.run(base)  # E: declared as `None`
+    j = Base.make()  # E: declared as `None`
+    k = Base.helper()  # E: declared as `None`
+    l = plain()  # E: declared as `None`
+    m = [1].append(2)  # E: declared as `None`
+    alias = notify
+    n = alias()  # E: declared as `None`
 "#,
 );
 
@@ -62,6 +76,38 @@ flag() and notify()  # E: declared as `None`
 choice = 1 if flag() else notify()  # E: declared as `None`
 1 if notify() else 2  # E: declared as `None`
 text = f"{notify()}"  # E: declared as `None`
+annotated: object = notify()  # E: declared as `None`
+pair = (None, notify())  # E: declared as `None`
+equal = notify() == 1  # E: declared as `None`
+negated = not notify()  # E: declared as `None`
+either = flag() or notify()  # E: declared as `None`
+attribute = notify().foo  # E: declared as `None`  # E: Object of class `NoneType` has no attribute `foo`
+"#,
+);
+
+testcase!(
+    statement_positions,
+    env(),
+    r#"
+from typing import Iterator
+
+def notify() -> None: ...
+
+if notify():  # E: declared as `None`
+    pass  # E: This code is unreachable
+while notify():  # E: declared as `None`
+    break
+for item in notify():  # E: declared as `None`  # E: Type `None` is not iterable
+    pass
+
+def returns_object() -> object:
+    return notify()  # E: declared as `None`
+
+def yields() -> Iterator[None]:
+    yield notify()  # E: declared as `None`
+
+def raises() -> None:
+    raise notify()  # E: declared as `None`  # E: Expression `notify()` has type `None`, expected `BaseException`
 "#,
 );
 
