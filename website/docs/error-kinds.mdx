@@ -1732,11 +1732,20 @@ result = Service().run()  # error: the result is always `None`
 Service().run()  # ok: the result is not used
 ```
 
-A result is not considered used in an expression statement, in the body of a
-`lambda`, in a branch of a conditional expression in one of these places, or in
-`return notify()` when the function's return type is `None`, `Any`, or not
-annotated, or for a generator when its return value is `None` or unconstrained,
-as with an `Iterator` return type.
+As in mypy, a result is not considered used in these places:
+
+- a call that is the whole expression of a statement, such as
+  `Service().run()`;
+- the body of a `lambda`;
+- `return Service().run()` when the function's return type is `None`, `Any`,
+  or not annotated, or, for a generator, when its return value is `None` or
+  unconstrained, as with an `Iterator` return type;
+- an unreachable `return`;
+- the value argument of `assert_type`, `reveal_type` and `cast`;
+- a branch of a conditional expression in one of these places.
+
+A call inside a larger expression is still reported, even in a statement: both
+`print(Service().run())` and `flag() and Service().run()` report it.
 
 ## not-a-type
 

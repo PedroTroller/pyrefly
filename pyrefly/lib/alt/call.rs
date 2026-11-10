@@ -2593,10 +2593,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         })
     }
 
-    /// Whether every function that `target` may call declares its return type as `None`, either
-    /// written or obtained by substitution. A `None` inferred from the body of a function without
-    /// a return annotation does not count. For an `async def`, this is the return type of the
-    /// coroutine.
+    /// Whether every function that `target` may call declares its return type as `None`. For an
+    /// `async def`, this is the return type of the coroutine. A `None` inferred from the body of a
+    /// function without a return annotation does not count. A `Callable` carries no such
+    /// distinction, so a lambda whose body returns `None` counts, and so does a `None` obtained by
+    /// substituting a type parameter, which the `substituted_none` test marks as a bug.
     fn declares_none_return(&self, target: &CallTarget) -> bool {
         let function_declares_none = |function: &Function| {
             let flags = &function.metadata.flags;
@@ -3083,8 +3084,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         ty
     }
 
-    /// Infers a call expression. `awaited` is the range of the `await` that directly encloses the
-    /// call, if any.
+    /// `awaited` is the range of the `await` that directly encloses the call, if any.
     pub fn expr_call_infer(
         &self,
         mut callee: ExprCallee,

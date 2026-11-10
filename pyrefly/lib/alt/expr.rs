@@ -1568,8 +1568,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         })
     }
 
-    /// Finishes inferring a call. `awaited` is the range of the `await` that directly encloses the
-    /// call, if any.
+    /// `awaited` is the range of the `await` that directly encloses the call, if any.
     pub(crate) fn finish_prepared_expr_call(
         &self,
         prepared: PreparedExprCall,
