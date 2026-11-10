@@ -1715,6 +1715,38 @@ subject type such as `int`, `str`, or `object` is non-exhaustive.
 This is a sub-kind of [non-exhaustive-match](#non-exhaustive-match), so
 configuring or suppressing the parent kind also applies to this diagnostic.
 
+## none-call-result
+
+Default severity: `ignore`
+
+Enable this error kind to have Pyrefly report when the result of a call whose
+return type is declared as `None` is used. Such a value is always `None`, so
+using it is usually a mistake, such as expecting a method that modifies its
+object in place to return the result.
+
+```python
+class Service:
+    def run(self) -> None: ...
+
+result = Service().run()  # error: the result is always `None`
+Service().run()  # ok: the result is not used
+```
+
+As in mypy, a result is not considered used in these places:
+
+- a call that is the whole expression of a statement, such as
+  `Service().run()`;
+- the body of a `lambda`;
+- `return Service().run()` when the function's return type is `None`, `Any`,
+  or not annotated, or, for a generator, when its return value is `None` or
+  unconstrained, as with an `Iterator` return type;
+- an unreachable `return`;
+- the value argument of `assert_type`, `reveal_type` and `cast`;
+- a branch of a conditional expression in one of these places.
+
+A call inside a larger expression is still reported, even in a statement: both
+`print(Service().run())` and `flag() and Service().run()` report it.
+
 ## not-a-type
 
 This indicates an attempt to use something that isn't a type where a type is expected.
