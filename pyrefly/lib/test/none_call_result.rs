@@ -82,6 +82,42 @@ async def main() -> None:
 );
 
 testcase!(
+    union_callees,
+    env(),
+    r#"
+def first() -> None: ...
+def second() -> None: ...
+async def first_later() -> None: ...
+async def second_later() -> None: ...
+async def unannotated_later():
+    pass
+
+async def main(flag: bool) -> None:
+    pick = first if flag else second
+    a = pick()  # E: declared as `None`
+    pick_later = first_later if flag else second_later
+    b = await pick_later()  # E: declared as `None`
+    c = await unannotated_later()
+"#,
+);
+
+testcase!(
+    bug = "Awaiting a callable typed as returning `Awaitable[None]` should be reported",
+    awaited_callable,
+    env(),
+    r#"
+from typing import Any, Awaitable, Callable, Coroutine
+
+async def main(
+    awaitable: Callable[[], Awaitable[None]],
+    coroutine: Callable[[], Coroutine[Any, Any, None]],
+) -> None:
+    a = await awaitable()
+    b = await coroutine()
+"#,
+);
+
+testcase!(
     function_bodies,
     env(),
     r#"
